@@ -48,46 +48,6 @@ FACE_LOST_COUNTER = 0
 HEAD_DOWN_COUNTER = 0
 head_down_alert = False
 
-# --- FIXED: Audio handling for cloud deployment ---
-_audio_initialized = False
-_audio_available = False
-
-def _initialize_audio():
-    """Initializes audio only if available (for local deployment)."""
-    global _audio_initialized, _audio_available
-    if _audio_initialized:
-        return
-    
-    try:
-        # Check if we're in a cloud environment
-        if os.getenv("SPACE_ID") or os.getenv("HUGGINGFACE_SPACE"):
-            print("Cloud environment detected - audio disabled")
-            _audio_available = False
-        else:
-            import pygame
-            pygame.mixer.init()
-            _audio_available = True
-            print("Audio initialized successfully.")
-    except Exception as e:
-        print(f"Audio not available: {e}")
-        _audio_available = False
-    
-    _audio_initialized = True
-
-def play_alarm(sound_file=None):
-    """Plays an alarm sound if audio is available."""
-    _initialize_audio()
-    if not _audio_available:
-        return
-    
-    try:
-        import pygame
-        if sound_file and os.path.exists(sound_file) and not pygame.mixer.get_busy():
-            sound = pygame.mixer.Sound(sound_file)
-            sound.play()
-    except Exception as e:
-        print(f"Could not play sound: {e}")
-
 def generate_alert(final_eye_ratio, final_mouth_ratio):
     global EYE_THRESH_COUNTER, YAWN_THRESH_COUNTER, drowsy_alert, yawn_alert, DROWSY_COUNTER, YAWN_COUNTER
     
@@ -96,9 +56,6 @@ def generate_alert(final_eye_ratio, final_mouth_ratio):
         if EYE_THRESH_COUNTER >= EYE_CLOSED_THRESHOLD and not drowsy_alert:
             DROWSY_COUNTER += 1
             drowsy_alert = True
-            # Try to play sound if available
-            drowsiness_sound = os.path.join(script_dir, "drowsiness-detected.mp3")
-            Thread(target=play_alarm, args=(drowsiness_sound,)).start()
     else:
         EYE_THRESH_COUNTER = 0
         drowsy_alert = False
@@ -108,9 +65,6 @@ def generate_alert(final_eye_ratio, final_mouth_ratio):
         if YAWN_THRESH_COUNTER >= MOUTH_OPEN_THRESHOLD and not yawn_alert:
             YAWN_COUNTER += 1
             yawn_alert = True
-            # Try to play sound if available
-            yawn_sound = os.path.join(script_dir, "yawning-detected.mp3")
-            Thread(target=play_alarm, args=(yawn_sound,)).start()
     else:
         YAWN_THRESH_COUNTER = 0
         yawn_alert = False

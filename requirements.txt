@@ -1,9 +1,8 @@
 dlib-bin
 imutils
 numpy
-opencv-python
+opencv-python-headless
 pillow
-pygame
 scipy
 streamlit
 ultralytics
