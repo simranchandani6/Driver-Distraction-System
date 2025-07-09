@@ -1,0 +1,9 @@
+dlib-bin
+imutils
+numpy
+opencv-python
+pillow
+pygame
+scipy
+streamlit
+ultralytics
