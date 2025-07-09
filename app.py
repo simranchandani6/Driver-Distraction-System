@@ -79,8 +79,6 @@ for idx, class_name in enumerate(class_names):
 # --- Feature: YOLO Distraction Detection ---
 if page == "Distraction System":
     st.title("Driver Distraction System")
-    st.write("Upload an image or video to detect distractions using a 2-stage (Detect + Classify) pipeline.")
-    
     if model_det is None or model_cls is None:
         st.stop() 
 
