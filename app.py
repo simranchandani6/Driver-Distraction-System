@@ -49,8 +49,7 @@ if os.getenv("SPACE_ID"):  # Running on Hugging Face Spaces
 else:
     available_features = [
         "Distraction System",
-        "Video Drowsiness Detection",
-        "Real-time Drowsiness Detection"
+        "Video Drowsiness Detection"
     ]
 
 # --- Sidebar navigation ---
@@ -225,13 +224,6 @@ if page == "Distraction System":
                             
             except Exception as e:
                 st.error(f"Error handling video upload: {str(e)}")
-elif page == "Real-time Drowsiness Detection":
-    st.title("🧠 Real-time Drowsiness Detection")
-    st.write("This will open your webcam and run the detection script.")
-    if st.button("Start Drowsiness Detection"):
-        with st.spinner("Launching webcam..."):
-            subprocess.Popen(["python3", "drowsiness_detection.py", "--mode", "webcam"])
-        st.success("Drowsiness detection started in a separate window. Press 'q' in that window to quit.")
 
 # --- Feature: Video Drowsiness Detection ---
 elif page == "Video Drowsiness Detection":
@@ -270,6 +262,7 @@ elif page == "Video Drowsiness Detection":
                     
                     progress_bar.progress(100, text="Video processing completed!")
                     st.success("Video processed successfully!")
+
 
                     # Offer the processed video for download
                     if os.path.exists(temp_output_path):
