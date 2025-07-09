@@ -1,5 +1,3 @@
-# drowsiness_detection.py
-
 from scipy.spatial import distance as dist
 from imutils import face_utils
 from threading import Thread
