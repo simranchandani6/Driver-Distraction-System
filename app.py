@@ -18,8 +18,8 @@ st.set_page_config(
 )
 
 # --- Model Paths ---
-model_det_path = "v11_x_raw_preprocess.pt"
-model_cls_path = "cls_crop_img.pt"
+model_det_path = "best_14.pt"
+model_cls_path = "final_classification.pt"
 
 # ### NEW: Separate thresholds for each model ###
 DET_CONF_THRESHOLD = 0.95  # High-confidence threshold for the detection model
