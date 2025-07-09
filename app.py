@@ -1,12 +1,3 @@
-import asyncio
-import sys
-
-# --- Boilerplate for compatibility ---
-if sys.platform.startswith('linux') and sys.version_info >= (3, 8):
-    try:
-        asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-    except Exception:
-        pass
 import streamlit as st
 from PIL import Image
 import numpy as np
@@ -16,6 +7,7 @@ import tempfile
 import os
 from ultralytics import YOLO
 import cv2 as cv
+from video_processor import process_video_with_progress
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -77,7 +69,7 @@ def make_final_decision(det_class, det_conf, cls_class, cls_conf):
 # --- Sidebar ---
 st.sidebar.title("🚗 Driver Distraction System")
 st.sidebar.write("Choose an option below:")
-page = st.sidebar.radio("Select Feature", ["Distraction System", "Real-time Drowsiness Detection", "Video Drowsiness Detection"])
+page = st.sidebar.radio("Select Feature", ["Distraction System","Video Drowsiness Detection"])
 class_names = ['drinking', 'hair and makeup', 'operating the radio', 'reaching behind', 'safe driving', 
                'talking on the phone', 'talking to passenger', 'texting']
 st.sidebar.subheader("Class Names")
@@ -89,9 +81,6 @@ if page == "Distraction System":
     st.title("Driver Distraction System")
     st.write("Upload an image or video to detect distractions using a 2-stage (Detect + Classify) pipeline.")
     
-    # Display thresholds being used
-    st.info(f"Using Thresholds -> Detector: **{DET_CONF_THRESHOLD:.0%}** | Classifier: **{CLS_CONF_THRESHOLD:.0%}**")
-
     if model_det is None or model_cls is None:
         st.stop() 
 
@@ -133,19 +122,11 @@ if page == "Distraction System":
 
                     final_class, final_conf, reason = make_final_decision(det_class, det_conf, cls_class, cls_conf)
 
-                    st.markdown("##### Stage 1: Detection")
-                    st.write(f"Found `{det_class}` with `{det_conf:.2%}` confidence.")
-                    
-                    st.markdown("##### Stage 2: Classification on Crop")
-                    st.image(cropped_image, caption=f"Cropped region passed to classifier", use_container_width=True)
-                    st.write(f"Classified as `{cls_class}` with `{cls_conf:.2%}` confidence.")
-
-                    st.markdown("---")
-                    st.markdown("##### Final Decision")
+                    st.markdown("##### Result")
                     st.success(reason) # Using success to highlight the decision reason
 
-                    st.metric(label="Final Predicted Class", value=final_class.replace('_', ' ').title())
-                    st.metric(label="Final Confidence Score", value=f"{final_conf:.4f}")
+                    st.metric(label="Predicted Class", value=final_class.replace('_', ' ').title())
+                    st.metric(label="Confidence Score", value=f"{final_conf:.4f}")
                     st.metric(label="Total Inference Time", value=f"{processing_time:.2f} seconds")
 
                 else:
@@ -281,73 +262,68 @@ if page == "Distraction System":
                 except Exception as e:
                     st.warning(f"Failed to clean up temporary files: {e}")
 
-# --- Drowsiness sections remain unchanged ---
-elif page == "Real-time Drowsiness Detection":
-    st.title("🧠 Real-time Drowsiness Detection")
-    st.write("This will open your webcam and run the detection script.")
-    if st.button("Start Drowsiness Detection"):
-        with st.spinner("Launching webcam..."):
-            subprocess.Popen(["python", "drowsiness_detection.py", "--mode", "webcam"])
-        st.success("Drowsiness detection started in a separate window. Press 'q' in that window to quit.")
 
+# --- Feature: Video Drowsiness Detection ---
 elif page == "Video Drowsiness Detection":
-    # ... (code is unchanged)
     st.title("📹 Video Drowsiness Detection")
-    st.write("Upload a video file to detect drowsiness and download the processed video.")
+    st.write("Upload a video file to detect drowsiness and generate a report.")
     uploaded_video = st.file_uploader("Upload Video", type=["mp4", "avi", "mov", "mkv", "webm"])
-    
+
     if uploaded_video is not None:
-        tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-        temp_input_path = tfile.name
-        temp_output_path = tempfile.mktemp(suffix="_processed.mp4")
-        
         try:
+            # Create a temporary file to hold the uploaded video
+            tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
             tfile.write(uploaded_video.read())
-            tfile.close() 
+            temp_input_path = tfile.name
+            temp_output_path = tempfile.mktemp(suffix="_processed.mp4")
 
             st.subheader("Original Video Preview")
             st.video(uploaded_video)
-            
+
             if st.button("Process Video for Drowsiness Detection"):
                 progress_bar = st.progress(0, text="Preparing to process video...")
-                with st.spinner("Processing video... This may take a while."):
-                    process = subprocess.Popen([
-                        "python", "drowsiness_detection.py", 
-                        "--mode", "video",
-                        "--input", temp_input_path,
-                        "--output", temp_output_path
-                    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                    
-                    stdout, stderr = process.communicate()
+                
+                # --- Define a callback function for the progress bar ---
+                def streamlit_progress_callback(current, total):
+                    if total > 0:
+                        percent_complete = int((current / total) * 100)
+                        progress_bar.progress(percent_complete, text=f"Analyzing frame {current}/{total}...")
 
-                    if process.returncode == 0:
-                        progress_bar.progress(100, text="Video processing completed!")
+                try:
+                    with st.spinner("Processing video... This may take a while."):
+                        # Call your robust video processing function
+                        stats = process_video_with_progress(
+                            input_path=temp_input_path,
+                            output_path=temp_output_path,
+                            progress_callback=streamlit_progress_callback
+                        )
+                    
+                    progress_bar.progress(100, text="Video processing completed!")
+                    st.success("Video processed successfully!")
+
+
+                    # Offer the processed video for download
+                    if os.path.exists(temp_output_path):
+                        with open(temp_output_path, "rb") as file:
+                            video_bytes = file.read()
+                        st.download_button(
+                            label="📥 Download Processed Video",
+                            data=video_bytes,
+                            file_name=f"drowsiness_detected_{uploaded_video.name}",
+                            mime="video/mp4"
+                        )
+                except Exception as e:
+                    st.error(f"An error occurred during video processing: {e}")
+                    st.info("Please ensure all required model files are present and the video format is supported.")
+                finally:
+                    # Cleanup temporary files
+                    try:
+                        if os.path.exists(temp_input_path):
+                            os.unlink(temp_input_path)
                         if os.path.exists(temp_output_path):
-                            st.success("Video processed successfully!")
-                            if stdout: st.code(stdout)
-                            with open(temp_output_path, "rb") as file: video_bytes = file.read()
-                            st.download_button(
-                                label="📥 Download Processed Video",
-                                data=video_bytes,
-                                file_name=f"drowsiness_detected_{uploaded_video.name}",
-                                mime="video/mp4",
-                                key="download_processed_video"
-                            )
-                            st.subheader("Sample Frame from Processed Video")
-                            cap = cv.VideoCapture(temp_output_path)
-                            ret, frame = cap.read()
-                            if ret: st.image(cv.cvtColor(frame, cv.COLOR_BGR2RGB), caption="Sample frame with drowsiness detection", use_container_width=True)
-                            cap.release()
-                        else:
-                            st.error("Error: Processed video file not found.")
-                            if stderr: st.code(stderr)
-                    else:
-                        st.error("An error occurred during video processing.")
-                        st.subheader("Error Log:")
-                        st.code(stderr)
-        
-        finally:
-            if os.path.exists(temp_input_path):
-                os.unlink(temp_input_path)
-            if os.path.exists(temp_output_path):
-                os.unlink(temp_output_path)
+                            os.unlink(temp_output_path)
+                    except Exception as e_clean:
+                        st.warning(f"Failed to clean up temporary files: {e_clean}")
+                        
+        except Exception as e:
+            st.error(f"Error handling video upload: {str(e)}")
