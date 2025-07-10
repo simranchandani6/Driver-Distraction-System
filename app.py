@@ -42,7 +42,7 @@ model_det, model_cls = load_models()
 # --- Constants for the decision logic (easy to tune) ---
 HIGH_CONF_THRESHOLD = 0.95
 MID_CONF_LOWER_BOUND = 0.72
-CLASSIFIER_GRACE_MARGIN = 0.07 # 7% margin
+CLASSIFIER_GRACE_MARGIN = 0.07 
 
 def make_final_decision(det_class, det_conf, cls_class, cls_conf, file_type):
     """
@@ -150,8 +150,7 @@ if page == "Distraction System":
                 else:
                     st.warning("No driver/distraction detected in the image.")
 
-
-    else:  # Video processing
+    else:  
         uploaded_video = st.file_uploader("Upload Video", type=["mp4", "avi", "mov", "mkv", "webm"])
 
         if uploaded_video is not None:
