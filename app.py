@@ -44,15 +44,12 @@ HIGH_CONF_THRESHOLD = 0.95
 MID_CONF_LOWER_BOUND = 0.72
 CLASSIFIER_GRACE_MARGIN = 0.07 # 7% margin
 
-def make_final_decision(det_class, det_conf, cls_class, cls_conf):
+def make_final_decision(det_class, det_conf, cls_class, cls_conf, file_type):
     """
     Combines predictions using a more robust, multi-layered logic.
-
     Returns: (final_class, final_confidence, reason_string)
-             Returns (None, None, reason) if confidence is too low.
     """
     # --- RULE 1: HIGH-CONFIDENCE PRIORITY ---
-    # If either model is extremely confident, trust the more confident one.
     if det_conf >= HIGH_CONF_THRESHOLD or cls_conf >= HIGH_CONF_THRESHOLD:
         if cls_conf > det_conf:
             reason = f"🏆 High-Confidence Priority: Classifier is dominant ({cls_conf:.1%})."
@@ -61,27 +58,30 @@ def make_final_decision(det_class, det_conf, cls_class, cls_conf):
             reason = f"🏆 High-Confidence Priority: Detector is dominant ({det_conf:.1%})."
             return det_class, det_conf, reason
 
-    # --- RULE 2: LOW-CONFIDENCE FALLBACK ---
-    # If both models are uncertain, signal to use the previous frame's data.
+    # --- RULE 2: LOW-CONFIDENCE HANDLING ---
     if det_conf < MID_CONF_LOWER_BOUND and cls_conf < MID_CONF_LOWER_BOUND:
-        reason = f"⚠️ Low Confidence: Both models below {MID_CONF_LOWER_BOUND:.0%} threshold. Reusing last known status."
-        # Returning None for class and conf signals the video loop to use the last known state.
-        return None, None, reason
+        if file_type == "Image":
+            # Choose the best available class even if confidence is low
+            if cls_conf > det_conf:
+                reason = f"⚠️ Low Confidence (Image): Choosing Classifier by default ({cls_conf:.1%})."
+                return cls_class, cls_conf, reason
+            else:
+                reason = f"⚠️ Low Confidence (Image): Choosing Detector by default ({det_conf:.1%})."
+                return det_class, det_conf, reason
+        else:
+            # For video: signal to use previous frame
+            reason = f"⚠️ Low Confidence (Video): Both models below {MID_CONF_LOWER_BOUND:.0%}. Reusing last known status."
+            return None, None, reason
 
     # --- RULE 3: MID-CONFIDENCE DECISION LOGIC ---
-    # This zone is for when at least one model is in the [70%, 95%) range.
-
-    # If classifier is stronger, we choose it.
     if cls_conf > det_conf:
         reason = f"🧠 Classifier Priority: Classifier is stronger in the mid-range ({cls_conf:.1%}) vs Detector ({det_conf:.1%})."
         return cls_class, cls_conf, reason
-    else: # This means det_conf >= cls_conf
+    else:
         difference = det_conf - cls_conf
-        # If detector is only slightly better (within the grace margin), we still prefer the specialized classifier.
         if difference <= CLASSIFIER_GRACE_MARGIN:
-            reason = f"🧠 Classifier Priority (Grace Margin): Classifier is within the {CLASSIFIER_GRACE_MARGIN:.0%} grace margin. Choosing Classifier ({cls_conf:.1%})."
+            reason = f"🧠 Classifier Priority (Grace Margin): Choosing Classifier ({cls_conf:.1%})."
             return cls_class, cls_conf, reason
-        # If detector is significantly better, we trust the detector.
         else:
             reason = f"🎯 Detector Priority: Detector is significantly stronger ({det_conf:.1%}) than Classifier ({cls_conf:.1%})."
             return det_class, det_conf, reason
@@ -138,10 +138,10 @@ if page == "Distraction System":
                     
                     processing_time = time.time() - start_time
 
-                    final_class, final_conf, reason = make_final_decision(det_class, det_conf, cls_class, cls_conf)
+                    final_class, final_conf, reason = make_final_decision(det_class, det_conf, cls_class, cls_conf,file_type="image")
 
                     st.markdown("##### Result")
-                    st.success(reason) # Using success to highlight the decision reason
+                    # st.success(reason) # Using success to highlight the decision reason
 
                     st.metric(label="Predicted Class", value=final_class.replace('_', ' ').title())
                     st.metric(label="Confidence Score", value=f"{final_conf:.4f}")
@@ -225,7 +225,7 @@ if page == "Distraction System":
                                     cls_class = results_cls[0].names[results_cls[0].probs.top1]
                                     cls_conf = results_cls[0].probs.top1conf.item()
 
-                                final_class, final_conf, _ = make_final_decision(det_class, det_conf, cls_class, cls_conf)
+                                final_class, final_conf, _ = make_final_decision(det_class, det_conf, cls_class, cls_conf,file_type="video")
 
                                 # Handle fallback if decision is None
                                 if final_class is None or final_conf is None:
