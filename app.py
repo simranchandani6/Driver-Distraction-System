@@ -18,12 +18,8 @@ st.set_page_config(
 )
 
 # --- Model Paths ---
-model_det_path = "best_14.pt"
+model_det_path = "raw17.pt"
 model_cls_path = "final_classification.pt"
-
-# ### NEW: Separate thresholds for each model ###
-DET_CONF_THRESHOLD = 0.95  # High-confidence threshold for the detection model
-CLS_CONF_THRESHOLD = 0.90  # High-confidence threshold for the classification model
 
 # --- Model Loading ---
 @st.cache_resource
@@ -41,30 +37,54 @@ def load_models():
     return detection_model, classification_model
 
 model_det, model_cls = load_models()
+# ### NEW & IMPROVED: Decision Fusion Logic ###
 
-# ### MODIFIED: Decision Fusion Logic with separate thresholds ###
+# --- Constants for the decision logic (easy to tune) ---
+HIGH_CONF_THRESHOLD = 0.95
+MID_CONF_LOWER_BOUND = 0.72
+CLASSIFIER_GRACE_MARGIN = 0.07 # 7% margin
+
 def make_final_decision(det_class, det_conf, cls_class, cls_conf):
     """
-    Combines predictions using a hierarchical logic based on separate thresholds.
-    Returns: (final_class, final_confidence, reason_string)
-    """
-    # Rule 1: Classifier is highly confident, so we trust it.
-    if cls_conf >= CLS_CONF_THRESHOLD:
-        reason = f"🧠 Classifier Priority: Classifier is confident ({cls_conf:.1%}) in **{cls_class}**."
-        return cls_class, cls_conf, reason
-        
-    # Rule 2: Classifier is not confident, but the detector is.
-    if det_conf >= DET_CONF_THRESHOLD:
-        reason = f"🎯 Detector Priority: Detector is confident ({det_conf:.1%}) in **{det_class}**, while classifier was not."
-        return det_class, det_conf, reason
+    Combines predictions using a more robust, multi-layered logic.
 
-    # Rule 3: Fallback - Neither model is highly confident, so we pick the best of the two.
-    if det_conf > cls_conf:
-        reason = f"🤔 Best Guess (Detector): Neither model reached its confidence threshold. Siding with detector's higher score ({det_conf:.1%}) for **{det_class}**."
-        return det_class, det_conf, reason
-    else:
-        reason = f"🤔 Best Guess (Classifier): Neither model reached its confidence threshold. Siding with classifier's higher score ({cls_conf:.1%}) for **{cls_class}**."
+    Returns: (final_class, final_confidence, reason_string)
+             Returns (None, None, reason) if confidence is too low.
+    """
+    # --- RULE 1: HIGH-CONFIDENCE PRIORITY ---
+    # If either model is extremely confident, trust the more confident one.
+    if det_conf >= HIGH_CONF_THRESHOLD or cls_conf >= HIGH_CONF_THRESHOLD:
+        if cls_conf > det_conf:
+            reason = f"🏆 High-Confidence Priority: Classifier is dominant ({cls_conf:.1%})."
+            return cls_class, cls_conf, reason
+        else:
+            reason = f"🏆 High-Confidence Priority: Detector is dominant ({det_conf:.1%})."
+            return det_class, det_conf, reason
+
+    # --- RULE 2: LOW-CONFIDENCE FALLBACK ---
+    # If both models are uncertain, signal to use the previous frame's data.
+    if det_conf < MID_CONF_LOWER_BOUND and cls_conf < MID_CONF_LOWER_BOUND:
+        reason = f"⚠️ Low Confidence: Both models below {MID_CONF_LOWER_BOUND:.0%} threshold. Reusing last known status."
+        # Returning None for class and conf signals the video loop to use the last known state.
+        return None, None, reason
+
+    # --- RULE 3: MID-CONFIDENCE DECISION LOGIC ---
+    # This zone is for when at least one model is in the [70%, 95%) range.
+
+    # If classifier is stronger, we choose it.
+    if cls_conf > det_conf:
+        reason = f"🧠 Classifier Priority: Classifier is stronger in the mid-range ({cls_conf:.1%}) vs Detector ({det_conf:.1%})."
         return cls_class, cls_conf, reason
+    else: # This means det_conf >= cls_conf
+        difference = det_conf - cls_conf
+        # If detector is only slightly better (within the grace margin), we still prefer the specialized classifier.
+        if difference <= CLASSIFIER_GRACE_MARGIN:
+            reason = f"🧠 Classifier Priority (Grace Margin): Classifier is within the {CLASSIFIER_GRACE_MARGIN:.0%} grace margin. Choosing Classifier ({cls_conf:.1%})."
+            return cls_class, cls_conf, reason
+        # If detector is significantly better, we trust the detector.
+        else:
+            reason = f"🎯 Detector Priority: Detector is significantly stronger ({det_conf:.1%}) than Classifier ({cls_conf:.1%})."
+            return det_class, det_conf, reason
 
 # --- Sidebar ---
 st.sidebar.title("🚗 Driver Distraction System")
@@ -172,7 +192,8 @@ if page == "Distraction System":
                     last_best_box_label = ""
                     last_status_text = "Status: Initializing..."
                     last_status_color = (128, 128, 128)
-
+                    last_final_class = "safe driving"
+                    last_final_conf = 0.80
                     while cap.isOpened():
                         ret, frame = cap.read()
                         if not ret: break
@@ -205,7 +226,18 @@ if page == "Distraction System":
                                     cls_conf = results_cls[0].probs.top1conf.item()
 
                                 final_class, final_conf, _ = make_final_decision(det_class, det_conf, cls_class, cls_conf)
-                                
+
+                                # Handle fallback if decision is None
+                                if final_class is None or final_conf is None:
+                                    print(f"Frame {frame_count}: Detected {det_class} ({det_conf:.1%}), Classified {cls_class} ({cls_conf:.1%}), Final Decision: None — Reusing last known state.")
+                                    final_class = last_final_class
+                                    final_conf = last_final_conf
+                                    print(f"→ Reused: {final_class} ({final_conf:.1%})")
+                                else:
+                                    last_final_class = final_class
+                                    last_final_conf = final_conf
+                                    print(f"Frame {frame_count}: Detected {det_class} ({det_conf:.1%}), Classified {cls_class} ({cls_conf:.1%}), Final Decision: {final_class} ({final_conf:.1%})")
+
                                 last_best_box_coords = (x1, y1, x2, y2)
                                 last_best_box_label = f"FINAL: {final_class} ({final_conf:.1%})"
                                 
